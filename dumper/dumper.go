@@ -11,6 +11,7 @@ import (
 )
 
 var flushDumperInterval time.Duration = 300
+var mysqlPing = "01 00 00 00 0e"
 
 // Dumper dumper struct
 type Dumper struct {
@@ -19,10 +20,11 @@ type Dumper struct {
 	buf       *bytes.Buffer
 	mu        sync.Mutex
 	closer    func()
+	dumpPing  bool
 }
 
 // New new handler
-func New(direction uint, logger *zap.Logger) *Dumper {
+func New(direction uint, dumpPing bool, logger *zap.Logger) *Dumper {
 
 	ticker := time.NewTicker(flushDumperInterval * time.Millisecond)
 	ch := make(chan struct{})
@@ -36,6 +38,7 @@ func New(direction uint, logger *zap.Logger) *Dumper {
 		logger:    logger,
 		buf:       new(bytes.Buffer),
 		closer:    closer,
+		dumpPing:  dumpPing,
 	}
 
 	go func() {
@@ -68,19 +71,26 @@ func (d *Dumper) Flush() {
 	}
 	hexdump := strings.Split(hex.Dump(d.buf.Bytes()), "\n")
 	d.buf.Truncate(0)
-	byteString := []string{}
-	ascii := []string{}
+	byteStrings := []string{}
+	asciis := []string{}
 	for _, hd := range hexdump {
 		if hd == "" {
 			continue
 		}
-		byteString = append(byteString, strings.TrimRight(strings.Replace(hd[10:58], "  ", " ", 1), " "))
-		ascii = append(ascii, hd[61:len(hd)-1])
+		byteString := strings.TrimRight(strings.Replace(hd[10:58], "  ", " ", 1), " ")
+		if byteString == mysqlPing && d.dumpPing == false {
+			continue
+		}
+		byteStrings = append(byteStrings, byteString)
+		asciis = append(asciis, hd[61:len(hd)-1])
+	}
+	if len(byteStrings) == 0 {
+		return
 	}
 	d.logger.Info("dump",
 		zap.Uint("direction", d.direction),
-		zap.String("hex", strings.Join(byteString, " ")),
-		zap.String("ascii", strings.Join(ascii, "")),
+		zap.String("hex", strings.Join(byteStrings, " ")),
+		zap.String("ascii", strings.Join(asciis, "")),
 	)
 }
 

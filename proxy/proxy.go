@@ -25,10 +25,11 @@ type Proxy struct {
 	done     chan struct{}
 	logger   *zap.Logger
 	dumpTCP  uint64
+	dumpPing bool
 }
 
 // New create new proxy
-func New(l net.Listener, u *upstream.Upstream, t time.Duration, dumpTCP uint64, logger *zap.Logger) *Proxy {
+func New(l net.Listener, u *upstream.Upstream, t time.Duration, dumpTCP uint64, dumpPing bool, logger *zap.Logger) *Proxy {
 	return &Proxy{
 		listener: l,
 		upstream: u,
@@ -36,6 +37,7 @@ func New(l net.Listener, u *upstream.Upstream, t time.Duration, dumpTCP uint64, 
 		done:     make(chan struct{}),
 		logger:   logger,
 		dumpTCP:  dumpTCP,
+		dumpPing: dumpPing,
 	}
 }
 
@@ -100,8 +102,8 @@ func (p *Proxy) handleConn(ctx context.Context, c net.Conn) error {
 	}
 
 	logger = logger.With(zap.String("upstream", ip.Address))
-	dr := dumper.New(toUpstream, logger)
-	ds := dumper.New(fromUpstream, logger)
+	dr := dumper.New(toUpstream, p.dumpPing, logger)
+	ds := dumper.New(fromUpstream, p.dumpPing, logger)
 
 	p.upstream.Use(ip)
 	defer func() {

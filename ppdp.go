@@ -29,6 +29,7 @@ type cmdOpts struct {
 	ProxyConnectTimeout time.Duration `long:"proxy-connect-timeout" default:"60s" description:"timeout of connection to upstream"`
 	ProxyProtocol       bool          `long:"proxy-protocol" description:"use proxy-proto for listen"`
 	DumpTCP             uint64        `long:"dump-tcp" default:"0" description:"Dump TCP. 0 = disable, 1 = src to dest, 2 = both"`
+	DumpMySQLPing       bool          `long:"dump-mysql-ping" description:"Dump mysql ping packet"`
 }
 
 func printVersion() {
@@ -88,7 +89,7 @@ func main() {
 			l = &proxyproto.Listener{Listener: l}
 		}
 		eg.Go(func() error {
-			p := proxy.New(l, u, opts.ProxyConnectTimeout, opts.DumpTCP, logger)
+			p := proxy.New(l, u, opts.ProxyConnectTimeout, opts.DumpTCP, opts.DumpMySQLPing, logger)
 			return p.Start(ctx)
 		})
 	}
