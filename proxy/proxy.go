@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"net"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/kazeburo/ppdp/dumper"
@@ -43,7 +45,13 @@ func New(l net.Listener, u *upstream.Upstream, t time.Duration, dumpTCP uint64, 
 
 // Start start new proxy
 func (p *Proxy) Start(ctx context.Context) error {
-
+	wg := &sync.WaitGroup{}
+	defer func() {
+		wg.Wait()
+		p.logger.Info("Complete shutdown",
+			zap.String("listen", p.listener.Addr().String()),
+		)
+	}()
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -57,14 +65,31 @@ func (p *Proxy) Start(ctx context.Context) error {
 	for {
 		conn, err := p.listener.Accept()
 		if err != nil {
+			if ne, ok := err.(net.Error); ok {
+				if ne.Temporary() {
+					p.logger.Warn("Failed to accept", zap.Error(err))
+					continue
+				}
+			}
+			if strings.Contains(err.Error(), "use of closed network connection") {
+				select {
+				case <-ctx.Done():
+					return nil
+				default:
+					// fallthrough
+				}
+			}
+			p.logger.Error("Failed to accept", zap.Error(err))
 			return err
 		}
 
-		go p.handleConn(ctx, conn)
+		go p.handleConn(wg, conn)
 	}
 }
 
-func (p *Proxy) handleConn(ctx context.Context, c net.Conn) error {
+func (p *Proxy) handleConn(wg *sync.WaitGroup, c net.Conn) error {
+	wg.Add(1)
+	defer wg.Done()
 	readLen := int64(0)
 	writeLen := int64(0)
 	hasError := false
