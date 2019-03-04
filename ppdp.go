@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 	"time"
 
 	proxyproto "github.com/armon/go-proxyproto"
@@ -82,6 +84,18 @@ func main() {
 	ctx := context.Background()
 	eg, ctx := errgroup.WithContext(ctx)
 	ctx, cancel := context.WithCancel(ctx)
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM)
+	eg.Go(func() error {
+		select {
+		case <-sigChan:
+			logger.Info("Signal received")
+			cancel()
+			return nil
+		}
+	})
+
 	defer cancel()
 
 	for _, l := range listens {
@@ -90,11 +104,14 @@ func main() {
 		}
 		eg.Go(func() error {
 			p := proxy.New(l, u, opts.ProxyConnectTimeout, opts.DumpTCP, opts.DumpMySQLPing, logger)
-			return p.Start(ctx)
+			err := p.Start(ctx)
+			if err != nil {
+				cancel()
+			}
+			return err
 		})
 	}
 	if err := eg.Wait(); err != nil {
-		defer cancel()
 		logger.Fatal("failed to start proxy", zap.Error(err))
 	}
 }
