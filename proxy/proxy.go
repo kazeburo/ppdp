@@ -83,13 +83,15 @@ func (p *Proxy) Start(ctx context.Context) error {
 			return err
 		}
 
-		go p.handleConn(wg, conn)
+		wg.Add(1)
+		go func(c net.Conn) {
+			defer wg.Done()
+			p.handleConn(c)
+		}(conn)
 	}
 }
 
-func (p *Proxy) handleConn(wg *sync.WaitGroup, c net.Conn) error {
-	wg.Add(1)
-	defer wg.Done()
+func (p *Proxy) handleConn(c net.Conn) error {
 	readLen := int64(0)
 	writeLen := int64(0)
 	hasError := false
