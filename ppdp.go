@@ -32,6 +32,7 @@ type cmdOpts struct {
 	ProxyProtocol       bool          `long:"proxy-protocol" description:"use proxy-proto for listen"`
 	DumpTCP             uint64        `long:"dump-tcp" default:"0" description:"Dump TCP. 0 = disable, 1 = src to dest, 2 = both"`
 	DumpMySQLPing       bool          `long:"dump-mysql-ping" description:"Dump mysql ping packet"`
+	BalancingMode       string        `long:"balancing" default:"leastconn" description:"balancing mode connection to upstream. " choice:"leastconn" choice:"iphash" choice:"fixed"`
 }
 
 func printVersion() {
@@ -103,7 +104,7 @@ func main() {
 			l = &proxyproto.Listener{Listener: l}
 		}
 		eg.Go(func() error {
-			p := proxy.New(l, u, opts.ProxyConnectTimeout, opts.DumpTCP, opts.DumpMySQLPing, logger)
+			p := proxy.New(l, u, opts.ProxyConnectTimeout, opts.DumpTCP, opts.DumpMySQLPing, opts.MaxConnectRerty, logger)
 			err := p.Start(ctx)
 			if err != nil {
 				cancel()

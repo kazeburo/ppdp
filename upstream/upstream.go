@@ -124,8 +124,8 @@ func (u *Upstream) Run(ctx context.Context) {
 	}
 }
 
-// GetAll : wild
-func (u *Upstream) GetAll() ([]*IP, error) {
+// GetN :
+func (u *Upstream) GetN(maxIP int) ([]*IP, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
@@ -140,12 +140,19 @@ func (u *Upstream) GetAll() ([]*IP, error) {
 		return u.ips[i].busy < u.ips[j].busy
 	})
 
-	ips := make([]*IP, len(u.ips))
+	if len(u.ips) < maxIP {
+		maxIP = len(u.ips)
+	}
+
+	ips := make([]*IP, maxIP)
 	for i, ip := range u.ips {
 		ips[i] = &IP{
 			Address: ip.Address,
 			version: ip.version,
 			busy:    0, // dummy
+		}
+		if len(ips) == maxIP {
+			break
 		}
 	}
 
