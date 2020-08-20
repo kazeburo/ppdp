@@ -1,21 +1,26 @@
 # ppdp
 
-TCP Proxy (relay) server with Support Proxy Protocol and TCPDump like function
+TCP Proxy (relay) server with Dynamic upstream resolution, Some balancing algorism, Support Proxy Protocol and TCPDump like function
 
 ```
+% ./ppdp -h
 Usage:
   ppdp [OPTIONS]
 
 Application Options:
-  -v, --version                Show version
-  -l, --listen=                address to bind (default: 0.0.0.0:3000)
-      --upstream=              upstream server: upstream-server:port
-      --proxy-connect-timeout= timeout of connection to upstream (default: 60s)
-      --proxy-protocol         use proxy-proto for listen
-      --dump-tcp=              Dump TCP. 0 = disable, 1 = src to dest, 2 = both (default: 0)
+  -v, --version                                       Show version
+  -l, --listen=                                       address to bind (default: 0.0.0.0:3000)
+      --upstream=                                     upstream server: upstream-server:port
+      --proxy-connect-timeout=                        timeout of connection to upstream (default: 60s)
+      --proxy-protocol                                use proxy-proto for listen
+      --dump-tcp=                                     Dump TCP. 0 = disable, 1 = src to dest, 2 = both (default: 0)
+      --dump-mysql-ping                               Dump mysql ping packet
+      --max-connect-retry=                            number of max connection retry (default: 3)
+      --balancing=[leastconn|iphash|fixed|remotehash] balancing mode connection to upstream. iphash: remote ip based, remotehash: remote ip + port based, fixed:
+                                                      upstream host based (default: leastconn)
 
 Help Options:
-  -h, --help                   Show this help message
+  -h, --help                                          Show this help message
  ```
 
 Sample

@@ -28,10 +28,11 @@ type Proxy struct {
 	logger   *zap.Logger
 	dumpTCP  uint64
 	dumpPing bool
+	maxRetry int
 }
 
 // New create new proxy
-func New(l net.Listener, u *upstream.Upstream, t time.Duration, dumpTCP uint64, dumpPing bool, logger *zap.Logger) *Proxy {
+func New(l net.Listener, u *upstream.Upstream, t time.Duration, dumpTCP uint64, dumpPing bool, maxRetry int, logger *zap.Logger) *Proxy {
 	return &Proxy{
 		listener: l,
 		upstream: u,
@@ -40,6 +41,7 @@ func New(l net.Listener, u *upstream.Upstream, t time.Duration, dumpTCP uint64, 
 		logger:   logger,
 		dumpTCP:  dumpTCP,
 		dumpPing: dumpPing,
+		maxRetry: maxRetry,
 	}
 }
 
@@ -104,7 +106,7 @@ func (p *Proxy) handleConn(c net.Conn) error {
 
 	logger.Info("log", zap.String("status", "Connected"))
 
-	ips, err := p.upstream.GetAll()
+	ips, err := p.upstream.GetN(p.maxRetry, c.RemoteAddr())
 	if err != nil {
 		logger.Error("Failed to get upstream", zap.Error(err))
 		c.Close()
@@ -112,7 +114,7 @@ func (p *Proxy) handleConn(c net.Conn) error {
 	}
 
 	var s net.Conn
-	var ip *upstream.IP
+	var ip upstream.IP
 	for _, ip = range ips {
 		s, err = net.DialTimeout("tcp", ip.Address, p.timeout)
 		if err == nil {

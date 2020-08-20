@@ -10,17 +10,20 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/stathat/consistent"
 	"go.uber.org/zap"
 )
 
 // Upstream struct
 type Upstream struct {
-	port   string
-	host   string
-	ips    []*IP
-	csum   string
-	logger *zap.Logger
-	mu     sync.Mutex
+	port       string
+	host       string
+	ips        []IP
+	csum       string
+	consistent *consistent.Consistent
+	balancing  string
+	logger     *zap.Logger
+	mu         sync.Mutex
 	// current resolved record version
 	version uint64
 	cancel  context.CancelFunc
@@ -35,8 +38,13 @@ type IP struct {
 	version uint64
 }
 
+// String :
+func (ip IP) String() string {
+	return ip.Address
+}
+
 // New :
-func New(upstream string, logger *zap.Logger) (*Upstream, error) {
+func New(upstream, balancing string, logger *zap.Logger) (*Upstream, error) {
 	hostPortSplit := strings.Split(upstream, ":")
 	h := hostPortSplit[0]
 	p := ""
@@ -47,11 +55,12 @@ func New(upstream string, logger *zap.Logger) (*Upstream, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	um := &Upstream{
-		host:    h,
-		port:    p,
-		version: 0,
-		logger:  logger,
-		cancel:  cancel,
+		host:      h,
+		port:      p,
+		version:   0,
+		balancing: balancing,
+		logger:    logger,
+		cancel:    cancel,
 	}
 
 	ips, err := um.RefreshIP(ctx)
@@ -66,7 +75,7 @@ func New(upstream string, logger *zap.Logger) (*Upstream, error) {
 }
 
 // RefreshIP : resolve hostname
-func (u *Upstream) RefreshIP(ctx context.Context) ([]*IP, error) {
+func (u *Upstream) RefreshIP(ctx context.Context) ([]IP, error) {
 	u.mu.Lock()
 	u.version++
 	u.mu.Unlock()
@@ -83,25 +92,31 @@ func (u *Upstream) RefreshIP(ctx context.Context) ([]*IP, error) {
 	})
 
 	csumTexts := make([]string, len(addrs))
-	ips := make([]*IP, len(addrs))
+	ips := make([]IP, len(addrs))
+
+	consistent := consistent.New()
+
 	for i, ia := range addrs {
 		csumTexts[i] = ia.IP.String()
 		address := ia.IP.String()
 		if u.port != "" {
 			address = address + ":" + u.port
 		}
-		ips[i] = &IP{
+		ips[i] = IP{
 			Address: address,
 			version: u.version,
 			busy:    0,
 		}
+		consistent.Add(address)
 	}
+
 	csum := strings.Join(csumTexts, ",")
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if csum != u.csum {
 		u.csum = csum
 		u.ips = ips
+		u.consistent = consistent
 	}
 
 	return ips, nil
@@ -124,14 +139,58 @@ func (u *Upstream) Run(ctx context.Context) {
 	}
 }
 
-// GetAll : wild
-func (u *Upstream) GetAll() ([]*IP, error) {
+// GetN :
+func (u *Upstream) GetN(maxIP int, src net.Addr) ([]IP, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
 	if len(u.ips) < 1 {
 		return nil, errors.New("No upstream hosts")
 	}
+
+	hostPortSplit := strings.Split(src.String(), ":")
+	srcAddr := hostPortSplit[0]
+
+	switch u.balancing {
+	case "fixed":
+		return u.getNByHash(maxIP, u.host)
+	case "iphash":
+		return u.getNByHash(maxIP, srcAddr)
+	case "remotehash":
+		return u.getNByHash(maxIP, src.String())
+	default:
+		return u.getNByLC(maxIP)
+	}
+}
+
+func (u *Upstream) getNByHash(maxIP int, key string) ([]IP, error) {
+	if len(u.ips) < maxIP {
+		maxIP = len(u.ips)
+	}
+
+	ips := make([]IP, maxIP)
+
+	res, err := u.consistent.GetN(key, maxIP)
+	if err != nil {
+		return ips, err
+	}
+
+	for i, ip := range res {
+		ips[i] = IP{
+			Address: ip,
+			version: 0, // dummy
+			busy:    0, // dummy
+		}
+		if len(ips) == maxIP {
+			break
+		}
+	}
+
+	return ips, nil
+
+}
+
+func (u *Upstream) getNByLC(maxIP int) ([]IP, error) {
 
 	sort.Slice(u.ips, func(i, j int) bool {
 		if u.ips[i].busy == u.ips[j].busy {
@@ -140,12 +199,19 @@ func (u *Upstream) GetAll() ([]*IP, error) {
 		return u.ips[i].busy < u.ips[j].busy
 	})
 
-	ips := make([]*IP, len(u.ips))
+	if len(u.ips) < maxIP {
+		maxIP = len(u.ips)
+	}
+
+	ips := make([]IP, maxIP)
 	for i, ip := range u.ips {
-		ips[i] = &IP{
+		ips[i] = IP{
 			Address: ip.Address,
 			version: ip.version,
 			busy:    0, // dummy
+		}
+		if len(ips) == maxIP {
+			break
 		}
 	}
 
@@ -153,7 +219,7 @@ func (u *Upstream) GetAll() ([]*IP, error) {
 }
 
 // Use : Increment counter
-func (u *Upstream) Use(o *IP) {
+func (u *Upstream) Use(o IP) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	for i, ip := range u.ips {
@@ -164,7 +230,7 @@ func (u *Upstream) Use(o *IP) {
 }
 
 // Release : decrement counter
-func (u *Upstream) Release(o *IP) {
+func (u *Upstream) Release(o IP) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	for i, ip := range u.ips {
