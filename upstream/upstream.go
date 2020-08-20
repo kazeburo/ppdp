@@ -156,6 +156,8 @@ func (u *Upstream) GetN(maxIP int, src net.Addr) ([]IP, error) {
 		return u.getNByHash(maxIP, u.host)
 	case "iphash":
 		return u.getNByHash(maxIP, srcAddr)
+	case "remotehash":
+		return u.getNByHash(maxIP, src.String())
 	default:
 		return u.getNByLC(maxIP)
 	}
