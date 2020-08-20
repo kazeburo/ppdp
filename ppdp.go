@@ -32,6 +32,7 @@ type cmdOpts struct {
 	ProxyProtocol       bool          `long:"proxy-protocol" description:"use proxy-proto for listen"`
 	DumpTCP             uint64        `long:"dump-tcp" default:"0" description:"Dump TCP. 0 = disable, 1 = src to dest, 2 = both"`
 	DumpMySQLPing       bool          `long:"dump-mysql-ping" description:"Dump mysql ping packet"`
+	MaxConnectRerty     int           `long:"max-connect-retry" default:"3" description:"number of max connection retry"`
 	BalancingMode       string        `long:"balancing" default:"leastconn" description:"balancing mode connection to upstream. " choice:"leastconn" choice:"iphash" choice:"fixed"`
 }
 
@@ -59,7 +60,7 @@ func main() {
 
 	logger, _ := zap.NewProduction()
 
-	u, err := upstream.New(opts.Upstream, logger)
+	u, err := upstream.New(opts.Upstream, opts.BalancingMode, logger)
 	if err != nil {
 		logger.Fatal("failed initialize upstream", zap.Error(err))
 	}

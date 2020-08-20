@@ -106,7 +106,7 @@ func (p *Proxy) handleConn(c net.Conn) error {
 
 	logger.Info("log", zap.String("status", "Connected"))
 
-	ips, err := p.upstream.GetN(p.maxRetry)
+	ips, err := p.upstream.GetN(p.maxRetry, c.RemoteAddr())
 	if err != nil {
 		logger.Error("Failed to get upstream", zap.Error(err))
 		c.Close()
@@ -114,7 +114,7 @@ func (p *Proxy) handleConn(c net.Conn) error {
 	}
 
 	var s net.Conn
-	var ip *upstream.IP
+	var ip upstream.IP
 	for _, ip = range ips {
 		s, err = net.DialTimeout("tcp", ip.Address, p.timeout)
 		if err == nil {
