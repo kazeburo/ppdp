@@ -5,16 +5,10 @@ all: ppdp
 
 .PHONY: ppdp
 
-bundle:
-	dep ensure
-
-update:
-	dep ensure -update
-
-ppdp: ppdp.go
+ppdp: ppdp.go dumper/*.go upstream/*.go
 	go build $(LDFLAGS) ppdp.go
 
-linux: ppdp.go
+linux: ppdp.go dumper/*.go upstream/*.go
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) ppdp.go
 
 check:
