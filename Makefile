@@ -1,5 +1,6 @@
 VERSION=0.1.0
 LDFLAGS=-ldflags "-X main.Version=${VERSION}"
+GO111MODULE=on
 
 all: ppdp
 
