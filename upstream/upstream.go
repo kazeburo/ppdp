@@ -168,7 +168,7 @@ func (u *Upstream) getNByHash(maxIP int, key string) ([]IP, error) {
 		maxIP = len(u.ips)
 	}
 
-	ips := make([]IP, maxIP)
+	ips := make([]IP, 0, maxIP)
 
 	res, err := u.consistent.GetN(key, maxIP)
 	if err != nil {
@@ -203,7 +203,7 @@ func (u *Upstream) getNByLC(maxIP int) ([]IP, error) {
 		maxIP = len(u.ips)
 	}
 
-	ips := make([]IP, maxIP)
+	ips := make([]IP, 0, maxIP)
 	for i, ip := range u.ips {
 		ips[i] = IP{
 			Address: ip.Address,
