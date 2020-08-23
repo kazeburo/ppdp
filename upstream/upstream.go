@@ -18,7 +18,8 @@ import (
 type Upstream struct {
 	port       string
 	host       string
-	ips        []IP
+	ips        []*IP
+	iph        map[string]*IP
 	csum       string
 	consistent *consistent.Consistent
 	balancing  string
@@ -75,7 +76,7 @@ func New(upstream, balancing string, logger *zap.Logger) (*Upstream, error) {
 }
 
 // RefreshIP : resolve hostname
-func (u *Upstream) RefreshIP(ctx context.Context) ([]IP, error) {
+func (u *Upstream) RefreshIP(ctx context.Context) ([]*IP, error) {
 	u.mu.Lock()
 	u.version++
 	u.mu.Unlock()
@@ -92,7 +93,8 @@ func (u *Upstream) RefreshIP(ctx context.Context) ([]IP, error) {
 	})
 
 	csumTexts := make([]string, len(addrs))
-	ips := make([]IP, len(addrs))
+	ips := make([]*IP, len(addrs))
+	iph := map[string]*IP{}
 
 	consistent := consistent.New()
 
@@ -102,11 +104,13 @@ func (u *Upstream) RefreshIP(ctx context.Context) ([]IP, error) {
 		if u.port != "" {
 			address = address + ":" + u.port
 		}
-		ips[i] = IP{
+		ipa := &IP{
 			Address: address,
 			version: u.version,
 			busy:    0,
 		}
+		ips[i] = ipa
+		iph[address] = ipa
 		consistent.Add(address)
 	}
 
@@ -116,6 +120,7 @@ func (u *Upstream) RefreshIP(ctx context.Context) ([]IP, error) {
 	if csum != u.csum {
 		u.csum = csum
 		u.ips = ips
+		u.iph = iph
 		u.consistent = consistent
 	}
 
@@ -140,7 +145,7 @@ func (u *Upstream) Run(ctx context.Context) {
 }
 
 // GetN :
-func (u *Upstream) GetN(maxIP int, src net.Addr) ([]IP, error) {
+func (u *Upstream) GetN(maxIP int, src net.Addr) ([]*IP, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
@@ -163,24 +168,24 @@ func (u *Upstream) GetN(maxIP int, src net.Addr) ([]IP, error) {
 	}
 }
 
-func (u *Upstream) getNByHash(maxIP int, key string) ([]IP, error) {
+func (u *Upstream) getNByHash(maxIP int, key string) ([]*IP, error) {
 	if len(u.ips) < maxIP {
 		maxIP = len(u.ips)
 	}
 
-	ips := make([]IP, 0, maxIP)
+	ips := make([]*IP, 0, maxIP)
 
 	res, err := u.consistent.GetN(key, maxIP)
 	if err != nil {
 		return ips, err
 	}
 
-	for i, ip := range res {
-		ips[i] = IP{
-			Address: ip,
-			version: 0, // dummy
-			busy:    0, // dummy
+	for _, ip := range res {
+		ipa, ok := u.iph[ip]
+		if !ok {
+			continue
 		}
+		ips = append(ips, ipa)
 		if len(ips) == maxIP {
 			break
 		}
@@ -190,7 +195,7 @@ func (u *Upstream) getNByHash(maxIP int, key string) ([]IP, error) {
 
 }
 
-func (u *Upstream) getNByLC(maxIP int) ([]IP, error) {
+func (u *Upstream) getNByLC(maxIP int) ([]*IP, error) {
 
 	sort.Slice(u.ips, func(i, j int) bool {
 		if u.ips[i].busy == u.ips[j].busy {
@@ -203,13 +208,9 @@ func (u *Upstream) getNByLC(maxIP int) ([]IP, error) {
 		maxIP = len(u.ips)
 	}
 
-	ips := make([]IP, 0, maxIP)
-	for i, ip := range u.ips {
-		ips[i] = IP{
-			Address: ip.Address,
-			version: ip.version,
-			busy:    0, // dummy
-		}
+	ips := make([]*IP, 0, maxIP)
+	for _, ipa := range u.ips {
+		ips = append(ips, ipa)
 		if len(ips) == maxIP {
 			break
 		}
@@ -219,25 +220,17 @@ func (u *Upstream) getNByLC(maxIP int) ([]IP, error) {
 }
 
 // Use : Increment counter
-func (u *Upstream) Use(o IP) {
+func (u *Upstream) Use(o *IP) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	for i, ip := range u.ips {
-		if ip.Address == o.Address && ip.version == o.version {
-			u.ips[i].busy = u.ips[i].busy + 1
-		}
-	}
+	o.busy = o.busy + 1
 }
 
 // Release : decrement counter
-func (u *Upstream) Release(o IP) {
+func (u *Upstream) Release(o *IP) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	for i, ip := range u.ips {
-		if ip.Address == o.Address && ip.version == o.version {
-			u.ips[i].busy = u.ips[i].busy - 1
-		}
-	}
+	o.busy = o.busy - 1
 }
 
 // Stop : stop upstream updater

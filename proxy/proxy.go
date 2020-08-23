@@ -114,7 +114,7 @@ func (p *Proxy) handleConn(c net.Conn) error {
 	}
 
 	var s net.Conn
-	var ip upstream.IP
+	var ip *upstream.IP
 	for _, ip = range ips {
 		s, err = net.DialTimeout("tcp", ip.Address, p.timeout)
 		if err == nil {
