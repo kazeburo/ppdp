@@ -114,14 +114,16 @@ func (p *Proxy) handleConn(c net.Conn) error {
 	}
 
 	var s net.Conn
-	var ip upstream.IP
+	var ip *upstream.IP
 	for _, ip = range ips {
+		p.upstream.Use(ip)
 		s, err = net.DialTimeout("tcp", ip.Address, p.timeout)
 		if err == nil {
 			break
-		} else {
-			logger.Warn("Failed to connect backend", zap.Error(err))
 		}
+		p.upstream.Fail(ip)
+		p.upstream.Release(ip)
+		logger.Warn("Failed to connect backend", zap.Error(err))
 	}
 	if err != nil {
 		logger.Error("Giveup to connect backends", zap.Error(err))
@@ -134,7 +136,6 @@ func (p *Proxy) handleConn(c net.Conn) error {
 	dr := dumper.New(toUpstream, p.dumpPing, logger)
 	ds := dumper.New(fromUpstream, p.dumpPing, logger)
 
-	p.upstream.Use(ip)
 	defer func() {
 		dr.Stop()
 		ds.Stop()

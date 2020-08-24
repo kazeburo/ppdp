@@ -33,6 +33,8 @@ type cmdOpts struct {
 	DumpTCP             uint64        `long:"dump-tcp" default:"0" description:"Dump TCP. 0 = disable, 1 = src to dest, 2 = both"`
 	DumpMySQLPing       bool          `long:"dump-mysql-ping" description:"Dump mysql ping packet"`
 	MaxConnectRerty     int           `long:"max-connect-retry" default:"3" description:"number of max connection retry"`
+	MaxFails            int           `long:"max-fails" default:"1" description:"number of unsuccessful attempts"`
+	RefreshInterval     time.Duration `long:"refresh-interval" default:"3s" description:"interval seconds to refresh upstream resolver"`
 	BalancingMode       string        `long:"balancing" default:"leastconn" description:"balancing mode connection to upstream. iphash: remote ip based, remotehash: remote ip + port based, fixed: upstream host based" choice:"leastconn" choice:"iphash" choice:"fixed" choice:"remotehash"`
 }
 
@@ -60,7 +62,7 @@ func main() {
 
 	logger, _ := zap.NewProduction()
 
-	u, err := upstream.New(opts.Upstream, opts.BalancingMode, logger)
+	u, err := upstream.New(opts.Upstream, opts.BalancingMode, opts.MaxFails, opts.RefreshInterval, logger)
 	if err != nil {
 		logger.Fatal("failed initialize upstream", zap.Error(err))
 	}
