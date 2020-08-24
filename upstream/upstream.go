@@ -2,6 +2,7 @@ package upstream
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"net"
 	"sort"
@@ -26,15 +27,18 @@ type Upstream struct {
 	logger     *zap.Logger
 	mu         sync.Mutex
 	// current resolved record version
-	version uint64
-	cancel  context.CancelFunc
+	version  uint64
+	cancel   context.CancelFunc
+	maxFails int
 }
 
 // IP : IP with counter
 type IP struct {
-	Address string
+	Original string
+	Address  string
 	// # requerst in busy
 	busy int64
+	fail int
 	// resolved record version
 	version uint64
 }
@@ -45,13 +49,13 @@ func (ip IP) String() string {
 }
 
 // New :
-func New(upstream, balancing string, logger *zap.Logger) (*Upstream, error) {
+func New(upstream, balancing string, maxFails int, interval time.Duration, logger *zap.Logger) (*Upstream, error) {
 	hostPortSplit := strings.Split(upstream, ":")
-	h := hostPortSplit[0]
-	p := ""
-	if len(hostPortSplit) > 1 {
-		p = hostPortSplit[1]
+	if len(hostPortSplit) < 1 {
+		return nil, fmt.Errorf("No port passed to upstream: %s", upstream)
 	}
+	h := hostPortSplit[0]
+	p := hostPortSplit[1]
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -62,6 +66,7 @@ func New(upstream, balancing string, logger *zap.Logger) (*Upstream, error) {
 		balancing: balancing,
 		logger:    logger,
 		cancel:    cancel,
+		maxFails:  maxFails,
 	}
 
 	ips, err := um.RefreshIP(ctx)
@@ -71,13 +76,16 @@ func New(upstream, balancing string, logger *zap.Logger) (*Upstream, error) {
 	if len(ips) < 1 {
 		return nil, errors.New("Could not resolv hostname")
 	}
-	go um.Run(ctx)
+	go um.Run(ctx, interval)
 	return um, nil
 }
 
 // RefreshIP : resolve hostname
 func (u *Upstream) RefreshIP(ctx context.Context) ([]*IP, error) {
 	u.mu.Lock()
+	for _, ipa := range u.ips {
+		ipa.fail = 0
+	}
 	u.version++
 	u.mu.Unlock()
 
@@ -100,14 +108,13 @@ func (u *Upstream) RefreshIP(ctx context.Context) ([]*IP, error) {
 
 	for i, ia := range addrs {
 		csumTexts[i] = ia.IP.String()
-		address := ia.IP.String()
-		if u.port != "" {
-			address = address + ":" + u.port
-		}
+		address := ia.IP.String() + ":" + u.port
 		ipa := &IP{
-			Address: address,
-			version: u.version,
-			busy:    0,
+			Original: u.host + ":" + u.port,
+			Address:  address,
+			version:  u.version,
+			busy:     0,
+			fail:     0,
 		}
 		ips[i] = ipa
 		iph[address] = ipa
@@ -128,8 +135,8 @@ func (u *Upstream) RefreshIP(ctx context.Context) ([]*IP, error) {
 }
 
 // Run : resolv hostname in background
-func (u *Upstream) Run(ctx context.Context) {
-	ticker := time.NewTicker(3 * time.Second)
+func (u *Upstream) Run(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -185,9 +192,25 @@ func (u *Upstream) getNByHash(maxIP int, key string) ([]*IP, error) {
 		if !ok {
 			continue
 		}
+		if ipa.fail >= u.maxFails {
+			continue
+		}
 		ips = append(ips, ipa)
 		if len(ips) == maxIP {
 			break
+		}
+	}
+
+	if len(ips) == 0 {
+		for _, ip := range res {
+			ipa, ok := u.iph[ip]
+			if !ok {
+				continue
+			}
+			ips = append(ips, ipa)
+			if len(ips) == maxIP {
+				break
+			}
 		}
 	}
 
@@ -210,9 +233,21 @@ func (u *Upstream) getNByLC(maxIP int) ([]*IP, error) {
 
 	ips := make([]*IP, 0, maxIP)
 	for _, ipa := range u.ips {
+		if ipa.fail >= u.maxFails {
+			continue
+		}
 		ips = append(ips, ipa)
 		if len(ips) == maxIP {
 			break
+		}
+	}
+
+	if len(ips) == 0 {
+		for _, ipa := range u.ips {
+			ips = append(ips, ipa)
+			if len(ips) == maxIP {
+				break
+			}
 		}
 	}
 
@@ -224,6 +259,13 @@ func (u *Upstream) Use(o *IP) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	o.busy = o.busy + 1
+}
+
+// Fail : Increment counter
+func (u *Upstream) Fail(o *IP) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	o.fail = o.fail + 1
 }
 
 // Release : decrement counter
