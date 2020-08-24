@@ -51,7 +51,7 @@ func (ip IP) String() string {
 // New :
 func New(upstream, balancing string, maxFails int, interval time.Duration, logger *zap.Logger) (*Upstream, error) {
 	hostPortSplit := strings.Split(upstream, ":")
-	if len(hostPortSplit) < 1 {
+	if len(hostPortSplit) < 2 {
 		return nil, fmt.Errorf("No port passed to upstream: %s", upstream)
 	}
 	h := hostPortSplit[0]
